@@ -94,18 +94,20 @@ function load(){CL.forEach(function(c){c.d=null;try{var r=localStorage.getItem('
 var $=function(s){return document.querySelector(s)};
 function usd(v){if(v==null||isNaN(v))return null;var a=Math.abs(Math.round(v)).toLocaleString('en-US');return (v<0?'-':'')+'$'+a}
 function esc(t){return String(t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-function badges(){load();var n=0;CL.forEach(function(c){var a=document.querySelector('a.card[data-k="'+c.f+'"] [data-badge]');if(!a)return;if(c.d){n++;a.className='badge on';a.textContent=(c.d.month?c.d.month.long:'Data')+' loaded'}else{a.className='badge';a.textContent='No data uploaded yet'}});
+function badges(){load();var n=0;CL.forEach(function(c){var a=document.querySelector('a.card[data-k="'+c.f+'"] [data-badge]');if(!a)return;if(c.d){n++;a.className='badge on';a.textContent=(c.d.month?c.d.month.long:'Data')+' loaded'}else{a.className='badge';a.textContent=c.old?'Old dashboard file on server: re-upload it':'No data uploaded yet'}});
  $('#cmpHint').textContent=n+' of '+CL.length+' clients have data uploaded'+(n<2?'. Upload files in at least two dashboards to compare.':'.');return n}
+
+var chkd=false;function checkOld(){if(chkd)return;chkd=true;CL.forEach(function(c){fetch(c.f+'?c='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():''}).then(function(t){c.old=!!t&&t.indexOf('gatp-dash:')<0;c.missing=!t;if(c.old||c.missing){var a=document.querySelector('a.card[data-k="'+c.f+'"] [data-badge]');if(a&&!c.d){a.className='badge';a.textContent=c.missing?'File not found on server':'Old dashboard file on server: re-upload it'}}}).catch(function(){})})}
 var ROWS=[['sec','Profit and loss'],['inc','Total income'],['gp','Gross profit'],['gm','Gross margin','pct'],['ex','Total expenses'],['ni','Net income'],['sec','Balance sheet'],['cash','Cash in bank'],['ta','Total assets'],['tl','Total liabilities'],['eq','Total equity'],['sec','Aging'],['ar','Open AR'],['ap','Open AP'],['apo','AP over 60 days','pct'],['sec','Quality'],['ck','Checks that tie','ck']];
 function val(d,k){if(!d)return null;if(k==='gm')return d.inc?d.gp/d.inc:null;if(k==='apo')return d.ap>0&&d.apOld!=null?d.apOld/d.ap:null;if(k==='ck')return d.ckAll?d.ckOk+'/'+d.ckAll:null;return d[k]}
 function fmt(v,t){if(v==null)return null;if(t==='pct')return Math.round(v*100)+'%';if(t==='ck')return v;return usd(v)}
 function render(){
  var n=badges(),have=CL.filter(function(c){return c.d}),el=$('#cmp');
- if(!have.length){el.innerHTML='<div class="panel"><h2>No data yet</h2><p>Open each client dashboard and upload that month\u2019s Excel files. Then come back here and press Compare all clients.</p></div>';return}
+ if(!have.length){var of0=CL.filter(function(c){return c.old});el.innerHTML=(of0.length?'<div class="warn"><b>Update needed:</b> the server still has an old version of '+of0.map(function(c){return esc(c.n)}).join(', ')+'. Upload the latest dashboard file(s) to the public folder, redeploy, then press Ctrl+F5.</div>':'')+'<div class="panel"><h2>No data yet</h2><p>Open each client dashboard and upload that month\u2019s Excel files. Then come back here and press Compare all clients.</p></div>';return}
  var months={};have.forEach(function(c){var m=c.d.month?c.d.month.long:'Unknown';months[m]=1});var mk=Object.keys(months);
  var same=mk.length===1, h='';
  if(!same)h+='<div class="warn">These clients are on different months ('+mk.map(esc).join(', ')+'). The combined column is hidden because adding different months would mislead.</div>';
- var miss=CL.filter(function(c){return !c.d});
+ var miss=CL.filter(function(c){return !c.d});var oldf=CL.filter(function(c){return c.old});if(oldf.length)h+='<div class="warn"><b>Update needed:</b> the server still has an old version of '+oldf.map(function(c){return esc(c.n)}).join(', ')+'. Upload the latest dashboard file(s) to the public folder, redeploy, then press Ctrl+F5.</div>';
  if(miss.length)h+='<div class="warn">No data yet for: '+miss.map(function(c){return '<a href="'+c.f+'">'+esc(c.n)+'</a>'}).join(', ')+'. Open it and upload the files, then press Compare again.</div>';
  var cols=have, showTot=same&&have.length>1;
  h+='<div class="panel"><h2>All clients comparison'+(same?' \u00b7 '+esc(mk[0]):'')+'</h2><p>Figures come from the files uploaded in each dashboard on this browser.</p><div class="tw"><table><thead><tr><th></th>'+cols.map(function(c){return '<th style="--c:'+c.c+'"><span></span>'+esc(c.n)+'</th>'}).join('')+(showTot?'<th class="tot">Combined</th>':'')+'</tr>'
@@ -129,7 +131,7 @@ function render(){
 $('#cmpBtn').addEventListener('click',function(){var o=$('#cmp').classList.toggle('open');this.setAttribute('aria-expanded',o);this.textContent=o?'Hide comparison':'Compare all clients';if(o){render();$('#cmp').scrollIntoView({behavior:'smooth',block:'start'})}});
 window.addEventListener('pageshow',function(){badges();if($('#cmp').classList.contains('open'))render()});
 window.addEventListener('storage',function(){badges();if($('#cmp').classList.contains('open'))render()});
-badges();
+badges();checkOld();
 window.__badges=function(){badges();if($("#cmp").classList.contains("open"))render()};
 })();
 </script>
@@ -146,7 +148,7 @@ function route(){
  if(F[h]){
   document.body.classList.add('fr');
   var f=fr.querySelector('iframe[data-id="'+h+'"]');
-  if(!f){f=document.createElement('iframe');f.setAttribute('data-id',h);f.title=h;f.src=F[h];fr.appendChild(f)}
+  if(!f){f=document.createElement('iframe');f.setAttribute('data-id',h);f.title=h;f.src=F[h]+'?v='+Date.now();fr.appendChild(f)}
   fr.querySelectorAll('iframe').forEach(function(x){x.classList.toggle('on',x===f)});
   ext.hidden=false;ext.href=F[h];hh();window.scrollTo(0,0);
  }else{
