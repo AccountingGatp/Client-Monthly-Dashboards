@@ -4,6 +4,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf-lib/1.17.1/pdf-lib.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 /* Layout: brand header + sticky section nav, then eight numbered panels in the order the client asked for them. Red is the Bluntd brand and doubles as the loss / outflow colour; green and amber carry the rest of the status vocabulary. */
@@ -208,7 +209,7 @@ ul.cks li.ok .res{color:var(--good)} ul.cks li.no .res{color:var(--bad)}
       <span class="sub" id="upNote"></span>
       <button class="btn" id="idxHead" data-idxopen type="button" hidden>Edit report index</button>
       <label class="btn primary" for="fileIn">Upload files</label>
-      <input id="fileIn" type="file" accept=".xlsx,.xls,.csv,.pdf" multiple>
+      <input id="fileIn" type="file" accept=".xlsx,.xls,.csv,.pdf,.zip" multiple>
     </div>
   </div>
 </header>
@@ -218,10 +219,10 @@ ul.cks li.ok .res{color:var(--good)} ul.cks li.no .res{color:var(--bad)}
   <section class="panel" id="upPanel">
     <div class="phead"><h2><span class="step">Step 1</span>Upload the month's files</h2><span class="sub" id="upNote2"></span></div>
     <label class="drop big" id="dropZone" for="fileIn">
-      <strong>Drop the Excel files here</strong>
+      <strong>Drop the Excel files or a .zip of them here</strong>
       <span class="sub">Extra records (a bank statement PDF, a CSV, any other sheet) can go in too. They are added to the report and you can place them in the index. Or choose them from your computer. The month is read from the files, so the same page works for any month.</span>
       <span class="btn primary">Choose files</span>
-      <span class="expect"><span>P&amp;L, single month .xlsx</span><span>P&amp;L, month-wise .xlsx</span><span>AP Aging .xlsx</span><span>AR Aging .xlsx</span><span>Balance Sheet .xlsx</span><span>Cash Flow .xlsx</span><span>Any extra PDF or CSV</span></span>
+      <span class="expect"><span>P&amp;L, single month .xlsx</span><span>P&amp;L, month-wise .xlsx</span><span>AP Aging .xlsx</span><span>AR Aging .xlsx</span><span>Balance Sheet .xlsx</span><span>Cash Flow .xlsx</span><span>Any extra PDF or CSV</span><span>Or one .zip with all of them</span></span>
       <span class="sub">Bank reconciliation and book updation status are filled in on the dashboard itself.</span>
     </label>
     <div id="dropNote" class="note"></div>
@@ -713,8 +714,24 @@ function renderAll(){
 }
 
 /* ---------- events ---------- */
+async function expandZips(list,bad,depth=0){
+  const out=[];
+  for(const f of [...list]){
+    if(!/\.zip$/i.test(f.name)){ out.push(f); continue; }
+    try{
+      if(!window.JSZip) throw new Error('zip library not loaded');
+      const z=await JSZip.loadAsync(await f.arrayBuffer());
+      for(const key of Object.keys(z.files)){ const e=z.files[key]; if(e.dir) continue;
+        const base=key.split('/').pop(); if(!base||base.startsWith('.')||base.startsWith('~$')||/^__MACOSX\//.test(key)) continue;
+        if(!/\.(xlsx|xls|csv|pdf|zip)$/i.test(base)) continue;
+        const buf=await e.async('arraybuffer'); const item={name:base,arrayBuffer:()=>Promise.resolve(buf)};
+        if(/\.zip$/i.test(base)){ if(depth<2) out.push(...await expandZips([item],bad,depth+1)); } else out.push(item); }
+    }catch(err){ console.error(f.name,err); bad.push(f.name+' (zip)'); }
+  }
+  return out;
+}
 async function ingest(list){
-  const files=[...list]; let n=0, bad=[];
+  let n=0, bad=[]; const files=await expandZips(list,bad);
   for(const fl of files){
     try{
       if(/\.pdf$/i.test(fl.name)){ const buf=await fl.arrayBuffer(); let pages=0; try{ pages=(await window.PDFLib.PDFDocument.load(buf,{ignoreEncryption:true})).getPageCount(); }catch(e){} if(!pages) throw new Error('unreadable pdf');
@@ -723,7 +740,7 @@ async function ingest(list){
     catch(e){ console.error(fl.name,e); bad.push(fl.name); }
   }
   renderAll(); $('#matchPanel').scrollIntoView({block:'nearest'});
-  if(bad.length) $('#missing').insertAdjacentHTML('afterbegin',`<div>${chip('Could not read','bad')} ${bad.map(esc).join(', ')}. Use .xlsx, .csv or .pdf files.</div>`);
+  if(bad.length) $('#missing').insertAdjacentHTML('afterbegin',`<div>${chip('Could not read','bad')} ${bad.map(esc).join(', ')}. Use .xlsx, .csv, .pdf or .zip files.</div>`);
 }
 $('#fileIn').addEventListener('change',e=>{ ingest(e.target.files); e.target.value=''; });
 $('#clearBtn').addEventListener('click',()=>{ S.files=[]; renderAll(); });
