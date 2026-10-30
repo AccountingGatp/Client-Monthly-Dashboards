@@ -192,6 +192,7 @@ ul.cks li.ok .res{color:var(--good)} ul.cks li.no .res{color:var(--bad)}
   .kpi .val{font-size:22px}
 }
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
+
 </style>
 
 <header class="top gut">
@@ -248,13 +249,14 @@ ul.cks li.ok .res{color:var(--good)} ul.cks li.no .res{color:var(--bad)}
   <section class="panel" id="cf"></section>
   <section class="panel" id="pdfPanel" hidden>
     <div class="phead"><h2><span class="step">Step 3</span>Build the PDF</h2><span class="sub">The contents page follows the report index above: names, order and hidden sections.</span></div>
-    <div class="pdfgrid"><label>Client<input id="pdfClient" value="Bluntd"></label><label>Prepared by<input id="pdfBy" placeholder="Name"></label><label>Report month<input id="pdfMonth" placeholder="September 2026"></label></div>
+    <div class="pdfgrid"><label>Client<input id="pdfClient" value=""></label><label>Prepared by<input id="pdfBy" placeholder="Name"></label><label>Report month<input id="pdfMonth" placeholder="September 2026"></label></div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center"><button class="btn" data-idxopen type="button">Edit report index</button><button class="btn primary" id="pdfBuild" type="button">Build monthly financial report</button><button class="btn" id="pdfSave" type="button" hidden>Save PDF</button><span class="sub" id="pdfNote" role="status"></span></div>
   </section>
 </div></main>
 <div id="tip" hidden></div>
 
 <script>
+const CFG={"client": "Bluntd", "word": "BLUNTD", "sub": "", "kp": "bluntd:", "ink": [22, 21, 20], "acc": [181, 34, 33], "soft": [236, 232, 229], "wash": [247, 228, 227]};
 const SEED = [];
 const MON=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 const FULL=['January','February','March','April','May','June','July','August','September','October','November','December'];
@@ -276,41 +278,66 @@ function parseMonth(s){
   let y=+m[2]; if(y<100) y+=2000;
   return {m:mi,y,key:y+'-'+String(mi+1).padStart(2,'0'),short:MON[mi]+' '+String(y).slice(2),long:FULL[mi]+' '+y};
 }
-const AGE_RE=/^(current|\d+\s*-\s*\d+|>\s*\d+|total)$/i;
+const AGE_RE=/^(current|\d+\s*-\s*\d+|>\s*\d+|\d+\s*(and|\+)\s*over|total)$/i;
 function parseSheet(aoa){
   aoa=aoa.map(r=>(r||[]).map(c=>(c===undefined||c==='')?null:c));
-  let hi=aoa.findIndex(r=>r.some(c=>c!=null&&(parseMonth(c)||AGE_RE.test(String(c).trim()))));
-  if(hi<0) hi=aoa.findIndex(r=>r.some(c=>c!=null));
-  if(hi<0) return {cols:[],rows:[]};
-  const h=aoa[hi]; const hidx=[]; h.forEach((c,i)=>{ if(c!=null&&(parseMonth(c)||AGE_RE.test(String(c).trim()))) hidx.push(i); });
-  if(!hidx.length) h.forEach((c,i)=>{ if(c!=null) hidx.push(i); });
-  const vs=Math.min(...hidx);
-  const cols=hidx.map(i=>({idx:i,label:String(h[i]).trim(),month:parseMonth(h[i])}));
-  const rows=[], stack=[];
+  const isH=(c,i)=>c!=null&&i>=1&&(parseMonth(c)||AGE_RE.test(String(c).trim()));
+  let hi=aoa.findIndex(r=>r.some(isH));
+  if(hi<0) hi=aoa.findIndex(r=>r.some((c,i)=>c!=null&&i>=1));
+  if(hi<0) return {cols:[],rows:[],titleMonth:null,titleCell:null};
+  const h=aoa[hi]; let hid=[]; h.forEach((c,i)=>{ if(isH(c,i)) hid.push(i); });
+  if(!hid.length) h.forEach((c,i)=>{ if(c!=null&&i>=1) hid.push(i); });
+  const vs=Math.min(...hid);
+  const cols=[]; h.forEach((c,i)=>{ if(i>=vs&&c!=null) cols.push({idx:i,label:String(c).trim(),month:parseMonth(c)}); });
+  let titleMonth=null,titleCell=null; for(let r=0;r<hi&&!titleMonth;r++) aoa[r].forEach(c=>{ if(!titleMonth&&typeof c==='string'){ const m=parseMonth(c); if(m){ titleMonth=m; titleCell=c.trim(); } } });
+  const raw=[];
   for(let r=hi+1;r<aoa.length;r++){
     const row=aoa[r]; let li=-1; for(let i=0;i<vs;i++) if(row[i]!=null){li=i;break;}
     if(li<0) continue;
-    const label=String(row[li]).trim(); const vals=cols.map(c=>toNum(row[c.idx])); const has=vals.some(v=>v!=null);
-    const isTot=/^(total|net cash|net ordinary|net other)\b/i.test(label);
-    const strong=isTot||/^(gross profit|net income|cash at)/i.test(label);
-    if(!has){
-      while(stack.length&&stack[stack.length-1].level>=li) stack.pop();
-      const p=stack[stack.length-1]; const node={label,level:li,vals:null,children:[],kind:'header',path:(p?p.path+'/':'')+label};
-      if(p) p.children.push(node); stack.push(node); rows.push(node); continue;
-    }
-    if(isTot){
-      let idx=-1; for(let i=stack.length-1;i>=0;i--) if(stack[i].level===li){idx=i;break;}
-      if(idx>=0){ const hd=stack[idx]; hd.vals=vals; stack.length=idx; rows.push({label,level:li,vals,kind:'total',strong:true,path:hd.path+'#T',hdr:hd}); continue; }
-    }
-    while(stack.length&&stack[stack.length-1].level>=li) stack.pop();
-    const p=stack[stack.length-1]; const leaf={label,level:li,vals,kind:strong?'total':'line',strong,children:[],path:(p?p.path+'/':'')+label};
-    if(p) p.children.push(leaf); rows.push(leaf);
+    const txt=String(row[li]); const label=txt.trim(); if(!label) continue; const sp=txt.match(/^\s*/)[0].length;
+    const vals=cols.map(c=>toNum(row[c.idx])); const has=vals.some(v=>v!=null);
+    if(!has&&/(GMT[+-]\d|accrual basis|cash basis)/i.test(label)) continue;
+    raw.push({label,li:li+Math.floor(sp/3),vals,has});
   }
-  return {cols,rows};
+  const explicit=raw.some(x=>x.li!==raw[0].li);
+  const rows=[], stack=[];
+  const findClose=(label,li)=>{
+    const nm=label.replace(/^total(\s+for)?\s+/i,'').toLowerCase().trim();
+    for(let i=stack.length-1;i>=0;i--) if(stack[i].label.toLowerCase().trim()===nm) return i;
+    if(/^net cash/i.test(label)) for(let i=stack.length-1;i>=0;i--) if(/activities$/i.test(stack[i].label.trim())) return i;
+    if(explicit) for(let i=stack.length-1;i>=0;i--) if(stack[i].level===li) return i;
+    return -1;
+  };
+  raw.forEach((x,k)=>{
+    const {label,vals,has}=x; const next=raw[k+1];
+    const isTot=/^(total|net cash|net ordinary|net operating|net other)\b/i.test(label);
+    const strong=isTot||/^(gross profit|net income|cash at)/i.test(label);
+    if(isTot&&has){
+      const idx=findClose(label,x.li);
+      if(idx>=0){ const hd=stack[idx]; hd.vals=vals; stack.length=idx; rows.push({label,level:hd.level,vals,kind:'total',strong:true,path:hd.path+'#T',hdr:hd}); return; }
+    }
+    if(explicit) while(stack.length&&stack[stack.length-1].level>=x.li) stack.pop();
+    const p=stack[stack.length-1]; const level=explicit?x.li:stack.length;
+    const asHeader=!has||(explicit&&!strong&&next&&next.li>x.li);
+    if(asHeader){
+      const node={label,level,vals:null,children:[],kind:'header',path:(p?p.path+'/':'')+label};
+      if(p) p.children.push(node); stack.push(node); rows.push(node);
+      if(has&&vals.some(v=>v)){ const d={label:label+' (direct)',level:level+1,vals,kind:'line',strong:false,children:[],path:node.path+'/'+label+' (direct)'}; node.children.push(d); rows.push(d); }
+      return;
+    }
+    const leaf={label,level,vals,kind:strong?'total':'line',strong,children:[],path:(p?p.path+'/':'')+label};
+    if(p) p.children.push(leaf); rows.push(leaf);
+  });
+  return {cols,rows,titleMonth,titleCell};
 }
-function row(P,labels,ci=0){ if(!P) return null; labels=[].concat(labels); for(const l of labels){ const r=P.rows.find(x=>x.vals&&x.label.toLowerCase()===l); if(r) return r; } return null; }
+const ALIAS={'total expenses':'total expense','expenses':'expense','net operating income':'net ordinary income','total cost of goods sold':'total cogs','total liabilities and equity':'total liabilities & equity'};
+const norm=s=>{ s=String(s).toLowerCase().replace(/\s+/g,' ').trim(); return ALIAS[s]||s; };
+const colMonth=P=>P?((P.cols.find(c=>c.month)||{}).month||P.titleMonth||null):null;
+function bsCash(B){ if(!B) return null; const c=B.rows.filter(r=>r.vals&&/^total (checking\/savings|bank accounts|cash( and cash equivalents)?)$/i.test(r.label)).sort((a,b)=>a.level-b.level); return c.length?c[0].vals[0]:null; }
+function row(P,labels,ci=0){ if(!P) return null; labels=[].concat(labels).map(norm); for(const l of labels){ const r=P.rows.find(x=>x.vals&&norm(x.label)===l); if(r) return r; } return null; }
 function val(P,labels,ci=0){ const r=row(P,labels); return r?r.vals[ci]:null; }
-function hnode(P,label){ return P&&P.rows.find(x=>x.kind==='header'&&x.label.toLowerCase()===label); }
+function hnode(P,label){ label=norm(label); return P&&P.rows.find(x=>x.kind==='header'&&norm(x.label)===label); }
+function hnodes(P,labels){ labels=[].concat(labels).map(norm); return P?P.rows.filter(x=>x.kind==='header'&&labels.includes(norm(x.label))):[]; }
 function leaves(n,out=[]){ if(!n) return out; if(n.children&&n.children.length&&!(n.vals&&n.kind==='header'&&false)) n.children.forEach(c=>leaves(c,out)); else if(n.vals) out.push(n); return out; }
 
 function detect(name,aoa){
@@ -320,6 +347,8 @@ function detect(name,aoa){
   if(/operating activities/.test(flat)) return 'cf';
   if(/ordinary income\/expense|total income|gross profit/.test(flat)) return monthsInHeader>1?'ytd':'pl';
   if(/(^|\|)current(\||$)/.test(flat)&&/1\s*-\s*30/.test(flat)){
+    if(/a\/p aging|accounts payable aging|payable aging/.test(flat)) return 'ap';
+    if(/a\/r aging|accounts receivable aging|receivable aging/.test(flat)) return 'ar';
     if(/(^|[^a-z0-9])ap([^a-z0-9]|$)|payable|vendor/i.test(name)) return 'ap';
     if(/(^|[^a-z0-9])ar([^a-z0-9]|$)|receivable|customer/i.test(name)) return 'ar';
     return 'ap';
@@ -341,9 +370,9 @@ function compute(){
   const by=curFiles(); M={files:by};
   Object.keys(by).forEach(t=>{ try{ M[t]=parseSheet(by[t].aoa); }catch(e){ console.error(t,e); } });
   let cm=null;
-  if(M.pl) cm=(M.pl.cols.find(c=>c.month)||{}).month;
+  if(M.pl) cm=colMonth(M.pl);
   if(!cm&&M.ytd){ const ms=M.ytd.cols.filter(c=>c.month); if(ms.length) cm=ms[ms.length-1].month; }
-  if(!cm&&M.bs) cm=(M.bs.cols[0]||{}).month;
+  if(!cm&&M.bs) cm=colMonth(M.bs); if(!cm&&M.cf) cm=colMonth(M.cf);
   M.month=cm;
   M.ci=0; M.pi=null; M.ycur=null;
   if(M.ytd&&cm){ M.ycur=M.ytd.cols.findIndex(c=>c.month&&c.month.key===cm.key); if(M.ycur>0&&M.ytd.cols[M.ycur-1].month) M.pi=M.ycur-1; }
@@ -358,12 +387,12 @@ function compute(){
 function fileMonth(x){
   const P=M[x.type]; if(!P) return null;
   if(x.type==='ytd'){ const ms=P.cols.filter(c=>c.month); return ms.length?ms[ms.length-1].month:null; }
-  if(['pl','bs','cf'].includes(x.type)) return (P.cols.find(c=>c.month)||{}).month||null;
+  if(['pl','bs','cf','ap','ar'].includes(x.type)) return colMonth(P);
   return null;
 }
 
 /* ---------- persistence of the two manual sections ---------- */
-const mkey=()=>'bluntd:'+(M.month?M.month.key:'none');
+const mkey=()=>CFG.kp+''+(M.month?M.month.key:'none');
 const DEF_BOOKS=['Bank and credit card transactions categorised','Bank and card reconciliations completed','Vendor bills entered up to month end','Customer invoices issued and payments applied','Payroll journals posted','Inventory and COGS adjustment posted','Loan, interest and depreciation entries','Customer deposits reviewed','Month-end review done and books locked'];
 function loadStatus(){
   let o=null; try{ o=JSON.parse(localStorage.getItem(mkey())||'null'); }catch(e){}
@@ -377,16 +406,16 @@ const stTone=s=>({'Reconciled':'good','Done':'good','In progress':'warn','Not st
 /* ---------- report index (names, order, visibility) ---------- */
 const DEF_IDX=[['pl','Profit & Loss'],['trend','Month-wise P&L'],['ap','AP Aging'],['ar','AR Aging'],['bank','Bank Reconciliation Status'],['books','Book Updation Status'],['bs','Balance Sheet'],['cf','Cash Flow Statement']].map(([id,name])=>({id,name,show:true}));
 function loadIdx(){
-  let o=null; try{ o=JSON.parse(localStorage.getItem('bluntd:index')||'null'); }catch(e){}
+  let o=null; try{ o=JSON.parse(localStorage.getItem(CFG.kp+'index')||'null'); }catch(e){}
   const out=[]; if(Array.isArray(o)) o.forEach(x=>{ const d=DEF_IDX.find(z=>z.id===x.id); if(d&&!out.some(z=>z.id===x.id)) out.push({id:x.id,name:(x.name||'').trim()||d.name,show:x.show!==false}); });
   DEF_IDX.forEach(d=>{ if(!out.some(z=>z.id===d.id)) out.push({...d}); }); S.idx=out;
 }
-function saveIdx(){ try{ localStorage.setItem('bluntd:index',JSON.stringify(S.idx.filter(x=>!x.extra))); const xn=JSON.parse(localStorage.getItem('bluntd:xnames')||'{}'); S.idx.filter(x=>x.extra).forEach(x=>{ xn[x.id]=x.name; }); localStorage.setItem('bluntd:xnames',JSON.stringify(xn)); }catch(e){} }
+function saveIdx(){ try{ localStorage.setItem(CFG.kp+'index',JSON.stringify(S.idx.filter(x=>!x.extra))); const xn=JSON.parse(localStorage.getItem(CFG.kp+'xnames')||'{}'); S.idx.filter(x=>x.extra).forEach(x=>{ xn[x.id]=x.name; }); localStorage.setItem(CFG.kp+'xnames',JSON.stringify(xn)); }catch(e){} }
 const domId=id=>id.startsWith('x:')?'xs-'+[...id].reduce((h,c)=>(h*31+c.charCodeAt(0))>>>0,7):id;
 function syncIdx(){
   const ex=S.files.filter(x=>x.type==='extra'); const want=new Set(ex.map(x=>'x:'+x.name));
   S.idx=S.idx.filter(x=>!x.extra||want.has(x.id));
-  let xn={}; try{ xn=JSON.parse(localStorage.getItem('bluntd:xnames')||'{}'); }catch(e){}
+  let xn={}; try{ xn=JSON.parse(localStorage.getItem(CFG.kp+'xnames')||'{}'); }catch(e){}
   ex.forEach(x=>{ const id='x:'+x.name; if(!S.idx.some(z=>z.id===id)) S.idx.push({id,name:xn[id]||x.name.replace(/\.[^.]+$/,'').replace(/^[0-9a-f]{8}-/,'').replace(/_+/g,' '),show:true,extra:true}); });
 }
 function secExtras(){
@@ -478,7 +507,7 @@ function spark(vals,tone){
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${d} L${l[0].toFixed(1)} ${H} L${pts[0][0].toFixed(1)} ${H} Z" style="fill:${col}" opacity=".12"/><path d="${d}" style="fill:none;stroke:${col}" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/><circle cx="${l[0].toFixed(1)}" cy="${l[1].toFixed(1)}" r="2.6" style="fill:${col}"/></svg>`;
 }
 function summary(){
-  const P=M.pl, Y=M.ytd, B=M.bs, el=$('#summary'); if(!P&&!B&&!M.ar&&!M.ap){ el.innerHTML=''; return; }
+  const P=M.pl, Y=M.ytd, B=M.bs, el=$('#summary'); if(!P&&!B&&!M.ar&&!M.ap){ el.innerHTML=''; shareSnap(null); return; }
   const g=l=>val(P,l), pv=l=>(Y&&M.pi!=null)?val(Y,l,M.pi):null; const pl=M.pi!=null?Y.cols[M.pi].month.short.split(' ')[0]:'';
   const inc=P?g(['total income']):null, gp=P?g('gross profit'):null, ex=P?g('total expense'):null, ni=P?g('net income'):null, cogs=P?g(['total cogs','total cost of goods sold']):null;
   const pinc=pv(['total income']), pgp=pv('gross profit'), pex=pv('total expense'), pni=pv('net income');
@@ -491,10 +520,13 @@ function summary(){
     tiles.push({g:'a',l:'Total expenses',v:usd(ex),r:ser('total expense'),s:sp('total expense'),c:deltaChip(ex,pex,false,pl)});
     tiles.push({g:'a',l:'Net income',v:usd(ni),cls:ni<0?'neg':'pos',r:ser('net income'),s:sp('net income',ni<0?'var(--bad)':'var(--good)'),c:pni!=null?`<span class="ctx">${pl} was ${usd(pni)}</span>`:''});
   }
-  if(B){ const cash=val(B,'total checking/savings'); tiles.push({l:'Cash in bank',v:usd(cash),s:'',c:'<span class="ctx">Checking and savings</span>'}); }
+  if(B){ const cash=bsCash(B); tiles.push({l:'Cash in bank',v:usd(cash),s:'',c:'<span class="ctx">Checking and savings</span>'}); }
   [['ar','Open AR'],['ap','Open AP']].forEach(([k,n])=>{ const A=M[k]; if(!A) return; const t=A.rows.find(r=>/^total$/i.test(r.label)&&r.vals); const T=agingTot(A); let old=0; if(t){ const nv=t.vals.length; old=(t.vals[nv-3]||0)+(t.vals[nv-2]||0); } tiles.push({l:n,v:usd(T),s:'',c:T>0?chip(pf(old/T)+' over 60 days',old/T>=0.25?'warn':'good'):'<span class="ctx">Nothing open</span>'}); });
   const calls=callouts(), ck=checks(); const bad=ck.filter(c=>!c.ok).length, okn=ck.length-bad;
   M.sumTiles=tiles; M.sumHero=null; let hero='';
+  try{ const agOld=A=>{ if(!A) return null; const t=A.rows.find(r=>/^total$/i.test(r.label)&&r.vals); if(!t) return null; const n=t.vals.length; return (t.vals[n-3]||0)+(t.vals[n-2]||0); };
+    shareSnap({client:CFG.client,month:M.month?{key:M.month.key,long:M.month.long}:null,inc,gp,ex,ni,cash:B?bsCash(B):null,ta:B?val(B,'total assets'):null,tl:B?val(B,'total liabilities'):null,eq:B?val(B,'total equity'):null,
+      ar:M.ar?agingTot(M.ar):null,ap:M.ap?agingTot(M.ap):null,arOld:agOld(M.ar),apOld:agOld(M.ap),ckOk:okn,ckAll:ck.length,ts:Date.now()}); }catch(e){}
   if(P&&ni!=null){
     M.sumHero={eye:'Monthly financial summary',head:(M.month?M.month.long:'This month')+' at a glance',sub:`Income ${usd(inc)}, gross profit ${usd(gp)}, expenses ${usd(ex)}, net income ${usd(ni)}${pni!=null?`. Compared with ${pl}.`:'.'}`};
     hero=`<div class="hero"><div class="hero-l"><div class="hero-eye">${esc(M.sumHero.eye)}</div><div class="hero-h">${esc(M.sumHero.head)}</div><div class="hero-sub">${esc(M.sumHero.sub)}</div></div>${ck.length?`<div class="hero-r"><div class="hero-n">${okn}<small>/${ck.length}</small></div><div class="hero-t">checks tie out</div>${bad?chip(bad+' need review','bad'):chip('All clear','good')}</div>`:''}</div>`;
@@ -509,7 +541,9 @@ function summary(){
       ${ck.length?`<div class="bar" aria-hidden="true"><i style="width:${okn/ck.length*100}%"></i></div><ul class="cks">${ck.map(c=>`<li class="${c.ok?'ok':'no'}"><span class="ico" aria-hidden="true">${c.ok?'&#10003;':'!'}</span><div><b>${esc(c.title)}</b><span class="d">${esc(c.body)}</span></div><span class="res">${c.ok?'Ties':'Review'}</span></li>`).join('')}</ul>`:'<p class="note">Upload more reports to compare them against each other.</p>'}</div>
   </div>`;
 }
+function shareSnap(o){ try{ const k='gatp-dash:'+CFG.kp; if(o) localStorage.setItem(k,JSON.stringify(o)); else localStorage.removeItem(k); }catch(e){} }
 function agingTot(A){ if(!A) return null; const t=A.rows.find(r=>/^total$/i.test(r.label)&&r.vals); if(t) return t.vals[t.vals.length-1]; return A.rows.filter(r=>r.vals&&r.kind==='line').reduce((a,r)=>a+(r.vals[r.vals.length-1]||0),0); }
+function asOfNote(A){ const m=A&&A.titleMonth; return (m&&M.month&&m.key!==M.month.key)?`. The aging report is dated "${A.titleCell}" but the balance sheet is for ${M.month.long}, so run the aging as of month end.`:''; }
 function checks(){
   const c=[], add=(ok,title,body)=>c.push({ok,title,body}); const tol=0.015;
   const P=M.pl,Y=M.ytd,B=M.bs,C=M.cf;
@@ -517,10 +551,10 @@ function checks(){
   if(P&&Y&&M.ycur>=0){ const a=val(P,'net income'), b=val(Y,'net income',M.ycur); if(a!=null&&b!=null) add(Math.abs(a-b)<tol,'Month P&L agrees with month-wise P&L',`Net income ${usd(a,2)} vs ${usd(b,2)} in the ${M.month.short} column`); }
   if(P&&C){ const a=val(P,'net income'), b=val(C,'net income'); if(a!=null&&b!=null) add(Math.abs(a-b)<tol,'Cash flow starts from the same net income',`P&L ${usd(a,2)} vs cash flow ${usd(b,2)}`); }
   if(B&&Y){ const tc=Y.cols.findIndex(x=>/total/i.test(x.label)); const a=val(B,'net income'), b=tc>=0?val(Y,'net income',tc):null; if(a!=null&&b!=null) add(Math.abs(a-b)<tol,'Balance sheet net income equals year to date P&L',`Balance sheet ${usd(a,2)} vs year to date ${usd(b,2)}`); }
-  if(C&&B){ const e=cfEnd(C), b=val(B,'total checking/savings'); if(e!=null&&b!=null) add(Math.abs(e-b)<tol,'Cash flow ending cash equals bank balances',`Cash flow ${usd(e,2)} vs balance sheet ${usd(b,2)}`); }
+  if(C&&B){ const e=cfEnd(C), b=bsCash(B); if(e!=null&&b!=null){ const uf=val(B,['undeposited funds'])||0, okU=Math.abs(e-b)>=tol&&uf&&Math.abs(e-b-uf)<tol; add(Math.abs(e-b)<tol||okU,'Cash flow ending cash equals bank balances',`Cash flow ${usd(e,2)} vs balance sheet ${usd(b,2)}`+(okU?` plus undeposited funds ${usd(uf,2)}`:'')); } }
   if(C){ const bg=cfBegin(C), e=cfEnd(C), n=val(C,'net cash increase for period'); if(bg!=null&&e!=null&&n!=null) add(Math.abs(bg+n-e)<tol,'Cash flow opening plus change equals closing',`${usd(bg,2)} + ${usd(n,2)} = ${usd(bg+n,2)} vs ${usd(e,2)}`); }
-  if(M.ar&&B){ const a=agingTot(M.ar), b=val(B,'total accounts receivable'); if(a!=null&&b!=null) add(Math.abs(a-b)<0.5,'AR aging agrees with balance sheet',`Aging ${usd(a,2)} vs balance sheet ${usd(b,2)}`+(Math.abs(a-b)>=0.5?` (difference ${usd(b-a,2)})`:'')); }
-  if(M.ap&&B){ const a=agingTot(M.ap), b=val(B,'total accounts payable'); if(a!=null&&b!=null) add(Math.abs(a-b)<0.5,'AP aging agrees with balance sheet',`Aging ${usd(a,2)} vs balance sheet ${usd(b,2)}`+(Math.abs(a-b)>=0.5?` (difference ${usd(b-a,2)})`:'')); }
+  if(M.ar&&B){ const a=agingTot(M.ar), b=val(B,'total accounts receivable'); if(a!=null&&b!=null) add(Math.abs(a-b)<0.5,'AR aging agrees with balance sheet',`Aging ${usd(a,2)} vs balance sheet ${usd(b,2)}`+(Math.abs(a-b)>=0.5?` (difference ${usd(b-a,2)})`:'')+asOfNote(M.ar)); }
+  if(M.ap&&B){ const a=agingTot(M.ap), b=val(B,'total accounts payable'); if(a!=null&&b!=null) add(Math.abs(a-b)<0.5,'AP aging agrees with balance sheet',`Aging ${usd(a,2)} vs balance sheet ${usd(b,2)}`+(Math.abs(a-b)>=0.5?` (difference ${usd(b-a,2)})`:'')+asOfNote(M.ap)); }
   return c;
 }
 function callouts(){
@@ -559,6 +593,7 @@ function secPL(){
   <div class="tscroll"><table><tr><th>Account</th><th>${esc(M.month?M.month.short:'Month')}</th><th>% of income</th><th>${esc(pl||'Prior')}</th><th>Change</th></tr>${rowsH}</table></div>`;
 }
 
+const SUMN=new Set(['total income','total cogs','gross profit','total expense','net ordinary income','net other income','net income']);
 const SUMMARY_LBL=['total income','total cogs','total cost of goods sold','gross profit','total expense','net ordinary income','net other income','net income'];
 function secTrend(){
   const el=$('#trend'), Y=M.ytd; const ttl=H('trend',M.month?' · year to '+esc(M.month.short.split(' ')[0]):'');
@@ -571,7 +606,7 @@ function secTrend(){
   const min=Math.min(...Y.rows.map(r=>r.level)); const incR=row(Y,'total income'), gpR=row(Y,'gross profit');
   let body='';
   Y.rows.forEach(r=>{
-    const isSum=SUMMARY_LBL.includes(r.label.toLowerCase())&&r.vals;
+    const isSum=SUMN.has(norm(r.label))&&r.vals;
     if(!S.detail&&!isSum) return;
     const ind=S.detail?(r.level-min)*9:0;
     const cells=r.vals?[...mi,...(ti>=0?[ti]:[])].map(i=>`<td class="${i===cur?'cur':''}">${f(r.vals[i])}</td>`).join(''):`<td colspan="${mi.length+(ti>=0?1:0)}"></td>`;
@@ -604,16 +639,16 @@ function secAging(k,n,ttl,who){
   const sorted=lines.slice().sort((a,b)=>b.vals[tIdx]-a.vals[tIdx]);
   const oldCols=bc.map((c,j)=>j>=bc.length-2);
   el.innerHTML=`<div class="phead">${h}${chip(T?pf(old/T)+' older than 60 days':'No open balance',T&&old/T>=0.25?'warn':'muted')}</div>
-  <div class="buckets">${bc.map((c,j)=>`<div class="bucket" style="border-top-color:var(${ramp[Math.min(j,4)]})"><span class="l">${esc(c.label)}${/^\d/.test(c.label)?' days':''}</span><span class="v">${f(tot[j])}</span><span class="p">${T?pf(tot[j]/T,0):'–'}</span></div>`).join('')}<div class="bucket" style="border-top-color:var(--ink)"><span class="l">Total ${who}</span><span class="v">${f(T)}</span><span class="p">${lines.filter(r=>r.vals[tIdx]!==0).length} open</span></div></div>
+  <div class="buckets">${bc.map((c,j)=>`<div class="bucket" style="border-top-color:var(${ramp[Math.min(j,4)]})"><span class="l">${esc(c.label)}${/^\d+\s*-\s*\d+$/.test(c.label)?' days':''}</span><span class="v">${f(tot[j])}</span><span class="p">${T&&tot[j]>0?pf(tot[j]/T,0):'–'}</span></div>`).join('')}<div class="bucket" style="border-top-color:var(--ink)"><span class="l">Total ${who}</span><span class="v">${f(T)}</span><span class="p">${lines.filter(r=>r.vals[tIdx]!==0).length} open</span></div></div>
   <div class="stack" aria-hidden="true">${stack}</div>
   <div class="tscroll"><table><tr><th>${k==='ar'?'Customer':'Vendor'}</th>${A.cols.map(c=>`<th>${esc(c.label)}</th>`).join('')}</tr>${sorted.map(r=>`<tr>${`<td>${esc(r.label)}</td>`}${r.vals.map((v,j)=>`<td class="${oldCols[j]&&v>0?'old':''}">${v?f(v,2):'–'}</td>`).join('')}</tr>`).join('')}<tr class="big"><td>Total</td>${tot.map(v=>`<td>${f(v,2)}</td>`).join('')}</tr></table></div>`;
 }
 
 function bankAccounts(){
   const B=M.bs; if(!B) return [];
-  const out=[]; const cs=hnode(B,'checking/savings'), cc=hnode(B,'credit cards');
+  const out=[]; const csa=hnodes(B,['checking/savings','bank accounts']), cs=csa[csa.length-1], cc=hnode(B,'credit cards');
   if(cs) cs.children.forEach(x=>{ if(x.vals) out.push({k:x.label,kind:'Bank account',book:x.vals[0]}); });
-  if(cc) cc.children.forEach(x=>{ if(x.vals) out.push({k:x.label,kind:'Credit card',book:x.vals[0]}); });
+  if(cc) cc.children.forEach(x=>{ if(x.vals&&!/^total/i.test(x.label)) out.push({k:x.label,kind:'Credit card',book:x.vals[0]}); });
   return out;
 }
 function bankDiff(a,st){ const s=toNum(st.stmt); return (s==null||st.stmt==='')?null:s-a.book; }
@@ -660,10 +695,10 @@ function secBS(){
 function cfBegin(C){ return val(C,['cash at beginning of period']); }
 function cfEnd(C){ return val(C,['cash at end of period']); }
 function secCF(){
-  const el=$('#cf'), C=M.cf; const h=H('cf',C&&C.cols[0].month?' · '+esc(C.cols[0].month.short):'');
+  const el=$('#cf'), C=M.cf; const h=H('cf',colMonth(C)?' · '+esc(colMonth(C).short):'');
   if(!C){ el.innerHTML=`<div class="phead">${h}</div>`+empty('cash flow statement'); return; }
   const bg=cfBegin(C), en=cfEnd(C), net=val(C,'net cash increase for period');
-  const items=C.rows.filter(r=>r.vals&&!/^(net cash|cash at)/i.test(r.label)).map(r=>({label:r.label,value:r.vals[0]}));
+  const items=C.rows.filter(r=>r.vals&&r.kind!=='header'&&!/^(net cash|cash at)/i.test(r.label)&&(r.kind!=='total'||/^net income$/i.test(r.label))).map(r=>({label:r.label,value:r.vals[0]}));
   const wf=[{label:'Cash at beginning',value:bg||0,total:true},...items,{label:'Cash at end',value:en||0,total:true}];
   const src=items.filter(x=>x.value>0).reduce((a,x)=>a+x.value,0), use=items.filter(x=>x.value<0).reduce((a,x)=>a+x.value,0);
   const tiles=[['Opening cash',usd(bg)],['Inflows',usd(src)],['Outflows',usd(use)],['Net change',usd(net)],['Closing cash',usd(en)]];
@@ -726,7 +761,7 @@ document.addEventListener('change',e=>{ const t=e.target; if(!t.dataset||!t.clos
   if(t.dataset.ishow!==undefined){ x.show=t.checked; saveIdx(); renderAll(); renderIdxPanel(); }
   else if(t.dataset.iname!==undefined){ x.name=t.value.trim()||DEF_IDX.find(d=>d.id===x.id).name; saveIdx(); renderAll(); renderIdxPanel(); } });
 /* ---------- PDF report ---------- */
-const PC={ink:[22,21,20],red:[181,34,33],mut:[95,90,87],soft:[236,232,229],wash:[247,228,227]};
+const PC={ink:CFG.ink,red:CFG.acc,bad:[181,34,33],mut:[95,90,87],soft:CFG.soft,wash:CFG.wash};
 const tx=s=>String(s==null?'':s).replace(/\u25B2/g,'Up').replace(/\u25BC/g,'Down').replace(/[‐-―]/g,'-').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/<[^>]+>/g,'').replace(/[^\x20-\xFF]/g,'?');
 function pdfTbl(doc,y,head,body,kinds,o){
   o=o||{}; const lv=o.lvls||[];
@@ -750,7 +785,7 @@ function pdfHead(doc,title,sub){
   return (num)=>{ doc.text(String(num),49,46.5,{align:'center'}); doc.setTextColor(...PC.ink); doc.setFontSize(15).text(tx(title).toUpperCase(),66,48); if(sub){ doc.setFont('helvetica','normal').setFontSize(9).setTextColor(...PC.mut); doc.text(tx(sub),752,48,{align:'right'}); doc.setTextColor(...PC.ink); } return 66; };
 }
 function kindOf(r){ return r.kind==='header'?'hd':(/^net income$/i.test(r.label)?'big':(r.strong?'tot':'')); }
-const SUFFIX={ pl:()=>M.month?M.month.long:'', trend:()=>M.month?'Year to '+M.month.short.split(' ')[0]:'', bs:()=>M.bs&&M.bs.cols[0]?'As at '+M.bs.cols[0].label:'', cf:()=>M.cf&&M.cf.cols[0].month?M.cf.cols[0].month.short:'' };
+const SUFFIX={ pl:()=>M.month?M.month.long:'', trend:()=>M.month?'Year to '+M.month.short.split(' ')[0]:'', bs:()=>M.bs&&M.bs.cols[0]?'As at '+M.bs.cols[0].label:'', cf:()=>colMonth(M.cf)?colMonth(M.cf).short:'' };
 const PDFSEC={
   pl(doc){ const P=M.pl; if(!P) return false; const Y=M.ytd, pi=M.pi; const inc=val(P,'total income')||0; const min=Math.min(...P.rows.map(r=>r.level)); const pl=pi!=null?Y.cols[pi].month.short:'Prior';
     const body=[],kinds=[],lvls=[]; P.rows.forEach(r=>{ lvls.push(r.level-min); kinds.push(kindOf(r)); if(r.kind==='header'){ body.push([r.label,'','','','']); return; } const v=r.vals[0], pr=(pi!=null&&M.ytdMap[r.path])?M.ytdMap[r.path].vals[pi]:null; body.push([r.label,f(v,2),inc?pf(v/inc,1):'-',pr!=null?f(pr,2):'-',pr!=null?f(v-pr,2):'-']); });
@@ -786,16 +821,16 @@ async function buildPDF(){
   const note=$('#pdfNote'); const J=window.jspdf; if(!J||!J.jsPDF){ note.textContent='The PDF library did not load. Check your internet connection and reload.'; return; }
   $('#pdfBuild').disabled=true; $('#pdfSave').hidden=true; note.textContent='Building...';
   try{
-    const doc=new J.jsPDF({orientation:'landscape',unit:'pt',format:'letter'}); const client=$('#pdfClient').value.trim()||'Bluntd', by=$('#pdfBy').value.trim(), ml=$('#pdfMonth').value.trim()||(M.month?M.month.long:'');
-    const logo=document.querySelector('.logo'); const lw=250, lh=lw*(logo.naturalHeight||155)/(logo.naturalWidth||649);
-    doc.setFillColor(...PC.red); doc.rect(0,0,792,16,'F'); try{ doc.addImage(logo.src,'PNG',50,90,lw,lh); }catch(e){}
+    const doc=new J.jsPDF({orientation:'landscape',unit:'pt',format:'letter'}); const client=$('#pdfClient').value.trim()||CFG.client, by=$('#pdfBy').value.trim(), ml=$('#pdfMonth').value.trim()||(M.month?M.month.long:'');
+    const logo=document.querySelector('img.logo'); const lw=250, lh=logo?lw*(logo.naturalHeight||155)/(logo.naturalWidth||649):0;
+    doc.setFillColor(...PC.red); doc.rect(0,0,792,16,'F'); if(logo){ try{ doc.addImage(logo.src,'PNG',50,90,lw,lh); }catch(e){} } else { doc.setFont('helvetica','bold').setFontSize(34).setTextColor(...PC.ink).text(CFG.word,50,125,{charSpace:5}); doc.setFontSize(11).setTextColor(...PC.mut).text(CFG.sub.toUpperCase(),52,146,{charSpace:3}); doc.setDrawColor(...PC.red); doc.setLineWidth(3); doc.line(50,160,110,160); doc.setLineWidth(.5); }
     doc.setTextColor(...PC.ink).setFont('helvetica','bold').setFontSize(34).text('MONTHLY FINANCIAL REPORT',50,250); doc.setFontSize(24).setTextColor(...PC.red).text(tx(ml).toUpperCase(),50,288);
     doc.setFont('helvetica','normal').setFontSize(12).setTextColor(...PC.mut); let cy=330; doc.text(tx(client),50,cy); if(by){ cy+=18; doc.text('Prepared by '+tx(by),50,cy); } doc.text('Generated '+new Date().toLocaleDateString('en-US',{day:'numeric',month:'long',year:'numeric'}),50,cy+18);
     doc.addPage(); const tocPage=doc.getNumberOfPages(); const toc=[];
     // summary
     doc.addPage(); toc.push({name:'Summary',page:doc.getNumberOfPages()}); const h0=pdfHead(doc,'Summary',ml); h0('');
     const TN=M.sumTiles||[], ck=checks(), cl=callouts(), okn=ck.filter(c=>c.ok).length, HERO=M.sumHero;
-    const TONE={good:[29,122,69],bad:PC.red,warn:[140,90,0],muted:PC.mut}; let y=66;
+    const TONE={good:[29,122,69],bad:PC.bad,warn:[140,90,0],muted:PC.mut}; let y=66;
     if(HERO){
       doc.setFillColor(...PC.ink); doc.rect(40,y,712,74,'F'); doc.setFillColor(...PC.red); doc.rect(40,y,712,3,'F');
       doc.setFont('helvetica','bold').setFontSize(7.5).setTextColor(190,184,179).text(tx(HERO.eye).toUpperCase(),56,y+20);
@@ -807,10 +842,10 @@ async function buildPDF(){
     const card=(x,yy,w,h,tl)=>{
       doc.setDrawColor(...PC.soft); doc.setFillColor(252,251,250); doc.rect(x,yy,w,h,'FD');
       doc.setFont('helvetica','bold').setFontSize(7).setTextColor(...PC.mut).text(tx(tl.l).toUpperCase(),x+9,yy+14);
-      doc.setFontSize(tl.v.length>12?11:15).setTextColor(...(tl.cls==='neg'?PC.red:PC.ink)).text(tx(tl.v),x+9,yy+32);
+      doc.setFontSize(tl.v.length>12?11:15).setTextColor(...(tl.cls==='neg'?PC.bad:PC.ink)).text(tx(tl.v),x+9,yy+32);
       const sv=(tl.r||[]); const vv=sv.filter(q=>q!=null);
       if(vv.length>1){ const mn=Math.min(...vv),mx=Math.max(...vv),rg=(mx-mn)||1,sx=x+9,sw=w-18,sy=yy+38,sh=14; const pts=[]; sv.forEach((q,i)=>{ if(q!=null) pts.push([sx+i*sw/(sv.length-1),sy+sh-(q-mn)/rg*sh]); });
-        const col=tl.cls==='neg'?PC.red:(tl.cls==='pos'?[29,122,69]:PC.mut); doc.setDrawColor(...col); doc.setLineWidth(.9); for(let i=1;i<pts.length;i++) doc.line(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1]); doc.setFillColor(...col); doc.circle(pts[pts.length-1][0],pts[pts.length-1][1],1.8,'F'); doc.setLineWidth(.5); }
+        const col=tl.cls==='neg'?PC.bad:(tl.cls==='pos'?[29,122,69]:PC.mut); doc.setDrawColor(...col); doc.setLineWidth(.9); for(let i=1;i<pts.length;i++) doc.line(pts[i-1][0],pts[i-1][1],pts[i][0],pts[i][1]); doc.setFillColor(...col); doc.circle(pts[pts.length-1][0],pts[pts.length-1][1],1.8,'F'); doc.setLineWidth(.5); }
       doc.setFont('helvetica','normal').setFontSize(7.5).setTextColor(...PC.mut).text(tx((tl.c||'').replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim()),x+9,yy+h-7,{maxWidth:w-14});
     };
     const A=TN.filter(q=>q.g==='a'), Bt=TN.filter(q=>q.g!=='a');
@@ -821,10 +856,10 @@ async function buildPDF(){
     cl.forEach(c=>{ const lines=doc.splitTextToSize(tx(c.text),270); if(py+lines.length*10>572) return; doc.setFont('helvetica','bold').setFontSize(7.5).setTextColor(...(TONE[c.tone]||PC.mut)).text(tx(c.tag),40,py); doc.setFont('helvetica','normal').setFontSize(8.5).setTextColor(...PC.ink).text(lines,100,py); py+=lines.length*10+7; doc.setDrawColor(...PC.soft); doc.line(40,py-4,380,py-4); });
     if(!cl.length) doc.setFont('helvetica','normal').setFontSize(8.5).setTextColor(...PC.mut).text('Nothing flagged.',40,py);
     doc.setFont('helvetica','bold').setFontSize(9).setTextColor(...PC.ink).text('TIE-OUT CHECKS',420,top); doc.setFont('helvetica','normal').setFontSize(8).setTextColor(...PC.mut).text(okn+' of '+ck.length+' tie',752,top,{align:'right'});
-    let ky=top+16; ck.forEach(c=>{ const dl=doc.splitTextToSize(tx(c.body),250).slice(0,2); if(ky+10+dl.length*9>572) return;
-      doc.setFillColor(...(c.ok?[29,122,69]:PC.red)); doc.circle(426,ky-2.5,4,'F'); doc.setFont('helvetica','bold').setFontSize(6).setTextColor(255,255,255).text(c.ok?'v':'!',426,ky-0.5,{align:'center'});
+    let ky=top+16; ck.forEach(c=>{ const dl=doc.splitTextToSize(tx(c.body),250).slice(0,4); if(ky+10+dl.length*9>572) return;
+      doc.setFillColor(...(c.ok?[29,122,69]:PC.bad)); doc.circle(426,ky-2.5,4,'F'); doc.setFont('helvetica','bold').setFontSize(6).setTextColor(255,255,255).text(c.ok?'v':'!',426,ky-0.5,{align:'center'});
       doc.setFont('helvetica','bold').setFontSize(8.5).setTextColor(...PC.ink).text(tx(c.title),438,ky,{maxWidth:250}); doc.setFont('helvetica','normal').setFontSize(7.5).setTextColor(...PC.mut).text(dl,438,ky+9);
-      doc.setFont('helvetica','bold').setFontSize(7).setTextColor(...(c.ok?[29,122,69]:PC.red)).text(c.ok?'TIES':'REVIEW',752,ky,{align:'right'}); ky+=12+dl.length*9+5; });
+      doc.setFont('helvetica','bold').setFontSize(7).setTextColor(...(c.ok?[29,122,69]:PC.bad)).text(c.ok?'TIES':'REVIEW',752,ky,{align:'right'}); ky+=12+dl.length*9+5; });
     // sections in index order
     const ins=[]; const off=p=>ins.filter(i=>i.after<p).reduce((a,i)=>a+i.count,0); S.idx.filter(x=>x.show).forEach(x=>{
       doc.addPage(); const start=doc.getNumberOfPages(); const sub=(SUFFIX[x.id]||(()=>''))();
@@ -855,7 +890,7 @@ $('#pdfBuild').addEventListener('click',buildPDF); $('#pdfSave').addEventListene
 $('#pdfMonth').addEventListener('input',e=>{ e.target.dataset.auto='0'; });
 let rz; addEventListener('resize',()=>{ clearTimeout(rz); rz=setTimeout(drawCharts,120); });
 
-loadIdx();
+loadIdx(); $('#pdfClient').value=CFG.client;
 SEED.forEach(s=>addFile(s.name,s.aoa));
 renderAll();
 </script>
