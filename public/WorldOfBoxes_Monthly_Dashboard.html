@@ -548,7 +548,8 @@ function summary(){
   const calls=callouts(), ck=checks(); const bad=ck.filter(c=>!c.ok).length, okn=ck.length-bad;
   M.sumTiles=tiles; M.sumHero=null; let hero='';
   try{ const agOld=A=>{ if(!A) return null; const t=A.rows.find(r=>/^total$/i.test(r.label)&&r.vals); if(!t) return null; const n=t.vals.length; return (t.vals[n-3]||0)+(t.vals[n-2]||0); };
-    shareSnap({client:CFG.client,month:M.month?{key:M.month.key,long:M.month.long}:null,inc,gp,ex,ni,cash:B?bsCash(B):null,ta:B?val(B,'total assets'):null,tl:B?val(B,'total liabilities'):null,eq:B?val(B,'total equity'):null,
+    let exl=[]; const en0=P?hnode(P,'expense'):null; if(en0){ exl=en0.children.filter(x=>x.vals&&x.vals[0]>0).map(x=>({l:x.label,v:x.vals[0]})).sort((a,b)=>b.v-a.v); const rest=exl.slice(6).reduce((a,x)=>a+x.v,0); exl=exl.slice(0,6); if(rest>0) exl.push({l:'All other',v:rest}); }
+    shareSnap({client:CFG.client,exl,cogs:P?g(['total cogs','total cost of goods sold']):null,month:M.month?{key:M.month.key,long:M.month.long}:null,inc,gp,ex,ni,cash:B?bsCash(B):null,ta:B?val(B,'total assets'):null,tl:B?val(B,'total liabilities'):null,eq:B?val(B,'total equity'):null,
       ar:M.ar?agingTot(M.ar):null,ap:M.ap?agingTot(M.ap):null,arOld:agOld(M.ar),apOld:agOld(M.ap),ckOk:okn,ckAll:ck.length,ts:Date.now()}); }catch(e){}
   if(P&&ni!=null){
     M.sumHero={eye:'Monthly financial summary',head:(M.month?M.month.long:'This month')+' at a glance',sub:`Income ${usd(inc)}, gross profit ${usd(gp)}, expenses ${usd(ex)}, net income ${usd(ni)}${pni!=null?`. Compared with ${pl}.`:'.'}`};
