@@ -65,6 +65,8 @@ td.tot,th.tot{font-weight:700;background:rgba(29,111,181,.07)}td.neg{color:var(-
 .tabs a:hover{color:var(--ink)}
 .tabs a.on{color:var(--ink);border-bottom-color:var(--c,var(--blue))}
 .tabs a[data-t]:not([data-t=home]):not([data-t=compare])::before{content:"";display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--c);margin-right:8px}
+.tabs a.ok::before{background:#1f9d55!important;box-shadow:0 0 0 3px rgba(31,157,85,.22)}
+.tabs a.ok::after{content:"\2713";color:#1f9d55;font-weight:800;margin-left:6px;font-size:13px}
 .tabs .sp{flex:1}.tabs a.ext{font-size:13px;color:var(--blue)}
 #frames{display:none}body.fr #frames{display:block}body.fr main,body.fr footer{display:none}
 #frames iframe{display:none;width:100%;height:calc(100vh - var(--hh,130px));border:0;background:var(--bg)}
@@ -94,7 +96,9 @@ function load(){CL.forEach(function(c){c.d=null;try{var r=localStorage.getItem('
 var $=function(s){return document.querySelector(s)};
 function usd(v){if(v==null||isNaN(v))return null;var a=Math.abs(Math.round(v)).toLocaleString('en-US');return (v<0?'-':'')+'$'+a}
 function esc(t){return String(t).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-function badges(){load();var n=0;CL.forEach(function(c){var a=document.querySelector('a.card[data-k="'+c.f+'"] [data-badge]');if(!a)return;if(c.d){n++;a.className='badge on';a.textContent=(c.d.month?c.d.month.long:'Data')+' loaded'}else{a.className='badge';a.textContent=c.old?'Old dashboard file on server: re-upload it':'No data uploaded yet'}});
+var TK={bluntd:'Bluntd_Monthly_Dashboard.html',bravura:'Bravura_Monthly_Dashboard.html',lxp:'LXP_Monthly_Dashboard.html',wob:'WorldOfBoxes_Monthly_Dashboard.html'};
+function tabs(){CL.forEach(function(c){Object.keys(TK).forEach(function(k){if(TK[k]!==c.f)return;var a=document.querySelector('.tabs a[data-t="'+k+'"]');if(!a)return;a.classList.toggle('ok',!!c.d);a.title=c.d?(c.d.month?c.d.month.long:'Data')+' uploaded':'No data uploaded yet'})})}
+function badges(){load();tabs();var n=0;CL.forEach(function(c){var a=document.querySelector('a.card[data-k="'+c.f+'"] [data-badge]');if(!a)return;if(c.d){n++;a.className='badge on';a.textContent=(c.d.month?c.d.month.long:'Data')+' loaded'}else{a.className='badge';a.textContent=c.old?'Old dashboard file on server: re-upload it':'No data uploaded yet'}});
  $('#cmpHint').textContent=n+' of '+CL.length+' clients have data uploaded'+(n<2?'. Upload files in at least two dashboards to compare.':'.');return n}
 
 var chkd=false;function checkOld(){if(chkd)return;chkd=true;CL.forEach(function(c){fetch(c.f+'?c='+Date.now(),{cache:'no-store'}).then(function(r){return r.ok?r.text():''}).then(function(t){c.old=!!t&&t.indexOf('gatp-dash:')<0;c.missing=!t;if(c.old||c.missing){var a=document.querySelector('a.card[data-k="'+c.f+'"] [data-badge]');if(a&&!c.d){a.className='badge';a.textContent=c.missing?'File not found on server':'Old dashboard file on server: re-upload it'}}}).catch(function(){})})}
@@ -131,7 +135,7 @@ function render(){
 $('#cmpBtn').addEventListener('click',function(){var o=$('#cmp').classList.toggle('open');this.setAttribute('aria-expanded',o);this.textContent=o?'Hide comparison':'Compare all clients';if(o){render();$('#cmp').scrollIntoView({behavior:'smooth',block:'start'})}});
 window.addEventListener('pageshow',function(){badges();if($('#cmp').classList.contains('open'))render()});
 window.addEventListener('storage',function(){badges();if($('#cmp').classList.contains('open'))render()});
-badges();checkOld();
+badges();checkOld();setInterval(function(){var k=CL.map(function(c){return c.d&&c.d.ts}).join();load();if(CL.map(function(c){return c.d&&c.d.ts}).join()!==k){window.__badges()}else tabs()},1500);
 window.__badges=function(){badges();if($("#cmp").classList.contains("open"))render()};
 })();
 </script>
