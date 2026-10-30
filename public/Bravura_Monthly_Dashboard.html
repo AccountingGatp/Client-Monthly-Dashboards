@@ -520,7 +520,7 @@ function spark(vals,tone){
   return `<svg class="spark" viewBox="0 0 ${W} ${H}" aria-hidden="true"><path d="${d} L${l[0].toFixed(1)} ${H} L${pts[0][0].toFixed(1)} ${H} Z" style="fill:${col}" opacity=".12"/><path d="${d}" style="fill:none;stroke:${col}" stroke-width="1.6" stroke-linejoin="round" vector-effect="non-scaling-stroke"/><circle cx="${l[0].toFixed(1)}" cy="${l[1].toFixed(1)}" r="2.6" style="fill:${col}"/></svg>`;
 }
 function summary(){
-  const P=M.pl, Y=M.ytd, B=M.bs, el=$('#summary'); if(!P&&!B&&!M.ar&&!M.ap){ el.innerHTML=''; return; }
+  const P=M.pl, Y=M.ytd, B=M.bs, el=$('#summary'); if(!P&&!B&&!M.ar&&!M.ap){ el.innerHTML=''; shareSnap(null); return; }
   const g=l=>val(P,l), pv=l=>(Y&&M.pi!=null)?val(Y,l,M.pi):null; const pl=M.pi!=null?Y.cols[M.pi].month.short.split(' ')[0]:'';
   const inc=P?g(['total income']):null, gp=P?g('gross profit'):null, ex=P?g('total expense'):null, ni=P?g('net income'):null, cogs=P?g(['total cogs','total cost of goods sold']):null;
   const pinc=pv(['total income']), pgp=pv('gross profit'), pex=pv('total expense'), pni=pv('net income');
@@ -537,6 +537,9 @@ function summary(){
   [['ar','Open AR'],['ap','Open AP']].forEach(([k,n])=>{ const A=M[k]; if(!A) return; const t=A.rows.find(r=>/^total$/i.test(r.label)&&r.vals); const T=agingTot(A); let old=0; if(t){ const nv=t.vals.length; old=(t.vals[nv-3]||0)+(t.vals[nv-2]||0); } tiles.push({l:n,v:usd(T),s:'',c:T>0?chip(pf(old/T)+' over 60 days',old/T>=0.25?'warn':'good'):'<span class="ctx">Nothing open</span>'}); });
   const calls=callouts(), ck=checks(); const bad=ck.filter(c=>!c.ok).length, okn=ck.length-bad;
   M.sumTiles=tiles; M.sumHero=null; let hero='';
+  try{ const agOld=A=>{ if(!A) return null; const t=A.rows.find(r=>/^total$/i.test(r.label)&&r.vals); if(!t) return null; const n=t.vals.length; return (t.vals[n-3]||0)+(t.vals[n-2]||0); };
+    shareSnap({client:CFG.client,month:M.month?{key:M.month.key,long:M.month.long}:null,inc,gp,ex,ni,cash:B?bsCash(B):null,ta:B?val(B,'total assets'):null,tl:B?val(B,'total liabilities'):null,eq:B?val(B,'total equity'):null,
+      ar:M.ar?agingTot(M.ar):null,ap:M.ap?agingTot(M.ap):null,arOld:agOld(M.ar),apOld:agOld(M.ap),ckOk:okn,ckAll:ck.length,ts:Date.now()}); }catch(e){}
   if(P&&ni!=null){
     M.sumHero={eye:'Monthly financial summary',head:(M.month?M.month.long:'This month')+' at a glance',sub:`Income ${usd(inc)}, gross profit ${usd(gp)}, expenses ${usd(ex)}, net income ${usd(ni)}${pni!=null?`. Compared with ${pl}.`:'.'}`};
     hero=`<div class="hero"><div class="hero-l"><div class="hero-eye">${esc(M.sumHero.eye)}</div><div class="hero-h">${esc(M.sumHero.head)}</div><div class="hero-sub">${esc(M.sumHero.sub)}</div></div>${ck.length?`<div class="hero-r"><div class="hero-n">${okn}<small>/${ck.length}</small></div><div class="hero-t">checks tie out</div>${bad?chip(bad+' need review','bad'):chip('All clear','good')}</div>`:''}</div>`;
@@ -551,6 +554,7 @@ function summary(){
       ${ck.length?`<div class="bar" aria-hidden="true"><i style="width:${okn/ck.length*100}%"></i></div><ul class="cks">${ck.map(c=>`<li class="${c.ok?'ok':'no'}"><span class="ico" aria-hidden="true">${c.ok?'&#10003;':'!'}</span><div><b>${esc(c.title)}</b><span class="d">${esc(c.body)}</span></div><span class="res">${c.ok?'Ties':'Review'}</span></li>`).join('')}</ul>`:'<p class="note">Upload more reports to compare them against each other.</p>'}</div>
   </div>`;
 }
+function shareSnap(o){ try{ const k='gatp-dash:'+CFG.kp; if(o) localStorage.setItem(k,JSON.stringify(o)); else localStorage.removeItem(k); }catch(e){} }
 function agingTot(A){ if(!A) return null; const t=A.rows.find(r=>/^total$/i.test(r.label)&&r.vals); if(t) return t.vals[t.vals.length-1]; return A.rows.filter(r=>r.vals&&r.kind==='line').reduce((a,r)=>a+(r.vals[r.vals.length-1]||0),0); }
 function asOfNote(A){ const m=A&&A.titleMonth; return (m&&M.month&&m.key!==M.month.key)?`. The aging report is dated "${A.titleCell}" but the balance sheet is for ${M.month.long}, so run the aging as of month end.`:''; }
 function checks(){
@@ -560,7 +564,7 @@ function checks(){
   if(P&&Y&&M.ycur>=0){ const a=val(P,'net income'), b=val(Y,'net income',M.ycur); if(a!=null&&b!=null) add(Math.abs(a-b)<tol,'Month P&L agrees with month-wise P&L',`Net income ${usd(a,2)} vs ${usd(b,2)} in the ${M.month.short} column`); }
   if(P&&C){ const a=val(P,'net income'), b=val(C,'net income'); if(a!=null&&b!=null) add(Math.abs(a-b)<tol,'Cash flow starts from the same net income',`P&L ${usd(a,2)} vs cash flow ${usd(b,2)}`); }
   if(B&&Y){ const tc=Y.cols.findIndex(x=>/total/i.test(x.label)); const a=val(B,'net income'), b=tc>=0?val(Y,'net income',tc):null; if(a!=null&&b!=null) add(Math.abs(a-b)<tol,'Balance sheet net income equals year to date P&L',`Balance sheet ${usd(a,2)} vs year to date ${usd(b,2)}`); }
-  if(C&&B){ const e=cfEnd(C), b=bsCash(B); if(e!=null&&b!=null) add(Math.abs(e-b)<tol,'Cash flow ending cash equals bank balances',`Cash flow ${usd(e,2)} vs balance sheet ${usd(b,2)}`); }
+  if(C&&B){ const e=cfEnd(C), b=bsCash(B); if(e!=null&&b!=null){ const uf=val(B,['undeposited funds'])||0, okU=Math.abs(e-b)>=tol&&uf&&Math.abs(e-b-uf)<tol; add(Math.abs(e-b)<tol||okU,'Cash flow ending cash equals bank balances',`Cash flow ${usd(e,2)} vs balance sheet ${usd(b,2)}`+(okU?` plus undeposited funds ${usd(uf,2)}`:'')); } }
   if(C){ const bg=cfBegin(C), e=cfEnd(C), n=val(C,'net cash increase for period'); if(bg!=null&&e!=null&&n!=null) add(Math.abs(bg+n-e)<tol,'Cash flow opening plus change equals closing',`${usd(bg,2)} + ${usd(n,2)} = ${usd(bg+n,2)} vs ${usd(e,2)}`); }
   if(M.ar&&B){ const a=agingTot(M.ar), b=val(B,'total accounts receivable'); if(a!=null&&b!=null) add(Math.abs(a-b)<0.5,'AR aging agrees with balance sheet',`Aging ${usd(a,2)} vs balance sheet ${usd(b,2)}`+(Math.abs(a-b)>=0.5?` (difference ${usd(b-a,2)})`:'')+asOfNote(M.ar)); }
   if(M.ap&&B){ const a=agingTot(M.ap), b=val(B,'total accounts payable'); if(a!=null&&b!=null) add(Math.abs(a-b)<0.5,'AP aging agrees with balance sheet',`Aging ${usd(a,2)} vs balance sheet ${usd(b,2)}`+(Math.abs(a-b)>=0.5?` (difference ${usd(b-a,2)})`:'')+asOfNote(M.ap)); }
